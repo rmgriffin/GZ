@@ -7,7 +7,7 @@ rm(list=ls()) # Clears workspace
 install.packages("renv")
 renv::init()
 
-PKG <- c("googledrive","tidyr","purrr", "sf", "tmap", "raster", "rnaturalearth", "rgdal")
+PKG <- c("googledrive","tidyr","purrr", "sf", "tmap", "raster", "rnaturalearth", "rgdal", "exactextractr")
 
 for (p in PKG) {
   if(!require(p,character.only = TRUE)) {  
@@ -51,6 +51,9 @@ prj<-CRS("+init=epsg:32649") # WGS84/UTM49N
 Pop<-projectRaster(Pop, crs=prj) 
 NDVI<-projectRaster(NDVI, crs=prj)
 
+# Removing negative NDVI values (as in Liu et al., 2019)
+NDVI[NDVI < 0] <- NA
+
 # Sample wetland polygon (replace with wetland polygon)
 wl<-st_sf(st_as_sfc(st_bbox(NDVI))) 
 wl<-st_buffer(wl, dist = -55000) # Making it small
@@ -73,7 +76,7 @@ p1<-tm_shape(l, bbox = st_bbox(Pop), ext = .85) +
 p2<-tm_shape(l, bbox = st_bbox(Pop), ext = .85) +
   tm_polygons(border.col = "black", col = "gray") +
   tm_shape(NDVI) +
-  tm_raster(midpoint = NA) +
+  tm_raster(palette = "Greens", colorNA = NULL) +
   tm_shape(cs) +
   tm_borders(col = "black") +
   tm_shape(r) +
@@ -85,6 +88,8 @@ p2<-tm_shape(l, bbox = st_bbox(Pop), ext = .85) +
 
 tmap_arrange(p1,p2, nrow = 1)  
 
+#tm_raster(style = "fixed", breaks=seq(0, 5, by=1), labels = c("<1","1 - 2","2 - 3","3 - 4",">4"), palette = cols, title = "Water Depth (m)",colorNA = "white",textNA = "")
+
 ## Analysis
 # 1. Raster to point for each pop cell within 1 km of wetland
 rwl_1km<-crop(Pop,wl_1km) # crop pop raster to serviceshed
@@ -92,10 +97,16 @@ rwl_p<-rasterToPoints(rwl_1km,spatial = TRUE) # raster to points
 rwl_p<-st_as_sf(rwl_p) # SP object to SF (faster/modern spatial format)
 # 2. Buffer each point by 1km
 rwl_b<-st_buffer(rwl_p,dist=1000)
+# 3. Prepare NDVI rasters for extraction
+NDVI_0<-crop(NDVI,wl_1km) # Baseline scenario
+NDVI_1<-NDVI_0 # Alternate scenario
+maxNDVI<-exact_extract(NDVI,wl_1km, fun = "max") # Max NDVI value within the wetland
+NDVI_1[NDVI_1 < maxNDVI] <- maxNDVI # Alternate scenario: NDVI across the wetland set to max observed value 
 # 3. Extract values of NDVI for old NDVI raster/new NDVI raster
-# 3a. Create new raster that changes all cells within the wetland to appropriate NDVI
-# 3b. Extract
-# 4. Calculate value under both scenarios using function from Liu et al. (2019)
+rwl_b$meanNDVI_0<-exact_extract(NDVI_0,rwl_b, fun = "mean")
+system.time(rwl_b$meanNDVI_1<-exact_extract(NDVI_1,rwl_b, fun = "mean"))
+# 4. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
+rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
+rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
 # 5. Aggregate and calculate net difference
 
-  #tm_raster(style = "fixed", breaks=seq(0, 5, by=1), labels = c("<1","1 - 2","2 - 3","3 - 4",">4"), palette = cols, title = "Water Depth (m)",colorNA = "white",textNA = "") +
