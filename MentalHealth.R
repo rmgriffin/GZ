@@ -109,7 +109,7 @@ system.time(rwl_b$meanNDVI_1<-exact_extract(NDVI_1,rwl_b, fun = "mean"))
 rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
 rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
 # 5. Aggregate and calculate net difference
-rwl_b$PPcValue<-rwl_b$PCTcWHO_5*356.74 # Per capita change in value
+rwl_b$PPcValue<-rwl_b$PCTcWHO_5*356.74 # Per capita change in value from Xu et al. (2016)
 rwl_b$cValue<-rwl_b$PPcValue*rwl_b$chn_ppp_2020_guangzhou # Total change in value per cell
 sumcValue<-sum(rwl_b$cValue) # Total change in value
 # 6. Net present value
