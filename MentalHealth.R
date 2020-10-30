@@ -109,4 +109,31 @@ system.time(rwl_b$meanNDVI_1<-exact_extract(NDVI_1,rwl_b, fun = "mean"))
 rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
 rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
 # 5. Aggregate and calculate net difference
+rwl_b$PPcValue<-rwl_b$PCTcWHO_5*356.74 # Per capita change in value
+rwl_b$cValue<-rwl_b$PPcValue*rwl_b$chn_ppp_2020_guangzhou # Total change in value per cell
+sumcValue<-sum(rwl_b$cValue) # Total change in value
+# 6. Net present value
+# https://stackoverflow.com/questions/47403180/calculate-npv-for-cashflows-at-all-point-in-time
+dcf <- function(x, r, t0=FALSE){
+  # calculates discounted cash flows (DCF) given cash flow and discount rate
+  #
+  # x - cash flows vector
+  # r - vector or discount rates, in decimals. Single values will be recycled
+  # t0 - cash flow starts in year 0, default is FALSE, i.e. discount rate in first period is zero.
+  if(length(r)==1){
+    r <- rep(r, length(x))
+    if(t0==TRUE){r[1]<-0}
+  }
+  x/cumprod(1+r)
+}
 
+npv <- function(x, r, t0=FALSE){
+  # calculates net present value (NPV) given cash flow and discount rate
+  #
+  # x - cash flows vector
+  # r - discount rate, in decimals
+  # t0 - cash flow starts in year 0, default is FALSE
+  sum(dcf(x, r, t0))
+}
+x<-rep(sumcValue,30) # vector of annual value, for a given number of years
+NPVcValue<-npv(x,0.05) # NPV, for a given discount rate and number of years
