@@ -5,7 +5,7 @@ rm(list=ls()) # Clears workspace
 
 # Install/call libraries
 install.packages("renv")
-renv::init()
+#renv::init()
 
 PKG <- c("googledrive","tidyr","purrr", "sf", "tmap", "raster", "rnaturalearth", "rgdal", "exactextractr")
 
