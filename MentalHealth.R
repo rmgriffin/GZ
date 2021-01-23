@@ -36,8 +36,12 @@ rm(files, folder, folder_url)
 # Load data to R
 NDVI<-raster("./Data/NDVI_mean_Guangzhou.tif")
 NDVI<-NDVI/10000 # Rescaling
-Pop<-raster("./Data/chn_ppp_2020_guangzhou.tif")
-# Pop<-raster("./Data/population.tif") <--switch to this when wetland shapefile is available
+Pop<-raster("./Data/population.tif") # Doesn't appear to have coverage across the whole serviceshed
+Pop2<-raster("./Data/chn_ppp_2020_guangzhou.tif")
+hw<-st_read("./Data/haizhu_wetland.gpkg")
+aoi<-st_read("./Data/aoi.gpkg")
+lulc<-raster("./Data/lulc.tif")
+codes<-read.csv("./Data/lulc_codes.csv")
 
 # Visualize data (auxiliary layers from Natural Earth for mapping, SF format)
 cs<-ne_download(scale = 10, type = "countries", returnclass = "sf")
@@ -49,62 +53,138 @@ prj<-CRS("+init=epsg:32649") # WGS84/UTM49N
 
 # Reprojecting
 Pop<-projectRaster(Pop, crs=prj) 
+Pop2<-projectRaster(Pop2, crs=prj) 
 NDVI<-projectRaster(NDVI, crs=prj)
 
 # Removing negative NDVI values (as in Liu et al., 2019)
 NDVI[NDVI < 0] <- NA
 
-# Sample wetland polygon (replace with wetland polygon)
-wl<-st_sf(st_as_sfc(st_bbox(NDVI))) 
-wl<-st_buffer(wl, dist = -55000) # Making it small
-wl_1km<-st_buffer(wl, dist = 1000) # Buffering the polygon by 1km, the extent of the serviceshed of NDVI from Haizhu wetland
+# Buffering the polygon by 1 and 2km - changes in the wetland can affect neighborhoods up to 1km outside of the wetland, and neighborhoods themselves are affected by NDVI within a 1km buffer
+hw_1km<-st_buffer(hw, dist = 1000) 
+hw_2km<-st_buffer(hw, dist = 2000) 
+
+# Creating a layer that is only the 2km wetland buffer
+hw_buff<-st_difference(hw_2km,hw)
 
 # Maps
-p1<-tm_shape(l, bbox = st_bbox(Pop), ext = .85) +
+p1<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
   tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(Pop) +
-  tm_raster() +
+  tm_shape(Pop2) +
+  tm_raster(title = "Population") +
   tm_shape(cs) +
   tm_borders(col = "black") +
   tm_shape(r) +
   tm_lines(col = "blue") +
-  tm_shape(wl) +
-  tm_borders(col = "red") +
-  tm_shape(wl_1km) +
-  tm_borders(col = "black", lty = "dashed")
+  tm_shape(hw) +
+  tm_borders(col = "black") +
+  tm_shape(hw_2km) +
+  tm_borders(col = "black", lty = "dashed") +
+  tm_layout(legend.outside = TRUE)
 
-p2<-tm_shape(l, bbox = st_bbox(Pop), ext = .85) +
+p2<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
   tm_polygons(border.col = "black", col = "gray") +
   tm_shape(NDVI) +
-  tm_raster(palette = "Greens", colorNA = NULL) +
+  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") +
   tm_shape(cs) +
   tm_borders(col = "black") +
   tm_shape(r) +
   tm_lines(col = "blue") +
-  tm_shape(wl) +
-  tm_borders(col = "red") +
-  tm_shape(wl_1km) +
-  tm_borders(col = "black", lty = "dashed")
+  tm_shape(hw) +
+  tm_borders(col = "black") +
+  tm_shape(hw_2km) +
+  tm_borders(col = "black", lty = "dashed") +
+  tm_layout(legend.outside = TRUE)
 
-tmap_arrange(p1,p2, nrow = 1)  
+p3<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
+  tm_polygons(border.col = "black", col = "gray") +
+  tm_shape(lulc) +
+  tm_raster(style = "fixed", breaks=codes$lucode, labels=codes$lulc_desc, palette = "Set1", title = "Land Cover") +
+  tm_shape(cs) +
+  tm_borders(col = "black") +
+  tm_shape(r) +
+  tm_lines(col = "blue") +
+  tm_shape(hw) +
+  tm_borders(col = "black") +
+  tm_shape(hw_2km) +
+  tm_borders(col = "black", lty = "dashed") +
+  tm_layout(legend.outside = TRUE)
+
+#tmap_arrange(p1,p2,p3, nrow = 3)  
 
 #tm_raster(style = "fixed", breaks=seq(0, 5, by=1), labels = c("<1","1 - 2","2 - 3","3 - 4",">4"), palette = cols, title = "Water Depth (m)",colorNA = "white",textNA = "")
 
 ## Analysis
-# 1. Raster to point for each pop cell within 1 km of wetland
-rwl_1km<-crop(Pop,wl_1km) # crop pop raster to serviceshed
+# 1. Raster to point for each pop cell inside or within 1 km of wetland
+rwl_1km<-mask(Pop2,hw_1km) # mask pop raster to serviceshed - note that "crop" function is different
 rwl_p<-rasterToPoints(rwl_1km,spatial = TRUE) # raster to points
 rwl_p<-st_as_sf(rwl_p) # SP object to SF (faster/modern spatial format)
 # 2. Buffer each point by 1km
 rwl_b<-st_buffer(rwl_p,dist=1000)
-# 3. Prepare NDVI rasters for extraction
-NDVI_0<-crop(NDVI,wl_1km) # Baseline scenario
-NDVI_1<-NDVI_0 # Alternate scenario
-maxNDVI<-exact_extract(NDVI,wl_1km, fun = "max") # Max NDVI value within the wetland
-NDVI_1[NDVI_1 < maxNDVI] <- maxNDVI # Alternate scenario: NDVI across the wetland set to max observed value 
-# 3. Extract values of NDVI for old NDVI raster/new NDVI raster
-rwl_b$meanNDVI_0<-exact_extract(NDVI_0,rwl_b, fun = "mean")
-system.time(rwl_b$meanNDVI_1<-exact_extract(NDVI_1,rwl_b, fun = "mean"))
+# 3. View outputs
+tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
+  tm_polygons(border.col = "black", col = "gray") +
+  tm_shape(NDVI) +
+  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") +
+  tm_shape(cs) +
+  tm_borders(col = "black") +
+  tm_shape(r) +
+  tm_lines(col = "blue") +
+  tm_shape(hw) +
+  tm_polygons(border.col = "black", col = "gray") +
+  tm_shape(rwl_p) + # points
+  tm_dots(col = "#3182bd") +
+  # tm_bubbles(size = "chn_ppp_2020_guangzhou") +
+  # tm_shape(rwl_b) + # buffers
+  # tm_borders(col = "red", lty = "dashed") +
+  tm_shape(hw_2km) +
+  tm_borders(col = "black") +
+  tm_shape(rwl_b[588,]) + # a given buffer
+  tm_borders(col = "blue", lty = "dashed") +
+  tm_layout(legend.outside = TRUE)
+# 4. Extract all NDVI values inside 2km buffer, i.e. NDVI conditions outside the wetland boundary, up to the furthest reach of neighborhoods that could be impacted by a change in wetland conditions
+NDVI_2km<-exact_extract(NDVI,hw_buff)
+NDVI_2km<-NDVI_2km[[1]]$value
+# 5. Extract values of NDVI for old NDVI raster
+rwl_b$NDVI_0<-exact_extract(NDVI,rwl_b)
+# Calculate mean 
+# https://stackoverflow.com/questions/45317327/apply-function-to-columns-in-a-list-of-data-frames-and-append-results
+# https://stackoverflow.com/questions/57834130/pmap-purrr-error-argument-1-must-have-names
+rwl_b$meanNDVI_0<-map_dbl(rwl_b$NDVI_0, function(x){
+  a<-mean(x$value,na.rm = TRUE)
+  return(a)
+})
+# Calculate count of pixels sampled
+rwl_b$countNDVI_0<-map_dbl(rwl_b$NDVI_0, function(x){
+  a<-length(na.omit(x$value)) # only counts non-NA cells
+  return(a)
+})
+# 6. Extract values of NDVI for new scenario
+# Create mask of NDVI to only 2km buffer
+NDVI_2km_crop<-mask(NDVI,hw_buff)
+# Extracting NDVI from the portion of neighborhood outside the wetland
+rwl_b$NDVI_1<-exact_extract(NDVI_2km_crop,rwl_b)
+# Calculate mean for NDVI outside the wetland
+rwl_b$meanNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
+  a<-mean(x$value,na.rm = TRUE)
+  return(a)
+})
+# Calculate count of pixels sampled
+rwl_b$countNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
+  a<-length(na.omit(x$value)) # only counts non-NA cells
+  return(a)
+})
+
+
+### Start here - come up with weighted mean NDVI from inside/outside wetland boundary
+rwl_b$meanNDVI_1<-(rwl_b$countNDVI_0-rwl_b$countNDVI_1)
+
+set.seed(5)
+mean(sample(NDVI_1km,num_cells,replace = FALSE),na.rm = TRUE)
+
+
+
+
+# 3. 
 # 4. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
 rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
 rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
