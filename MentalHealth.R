@@ -7,7 +7,7 @@ rm(list=ls()) # Clears workspace
 install.packages("renv")
 #renv::init()
 
-PKG <- c("googledrive","tidyr","purrr", "sf", "tmap", "raster", "rnaturalearth", "rgdal", "exactextractr")
+PKG <- c("googledrive","tidyr","purrr", "sf", "tmap", "raster", "rnaturalearth", "rgdal", "exactextractr","ggplot2")
 
 for (p in PKG) {
   if(!require(p,character.only = TRUE)) {  
@@ -138,7 +138,7 @@ tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
   # tm_borders(col = "red", lty = "dashed") +
   tm_shape(hw_2km) +
   tm_borders(col = "black") +
-  tm_shape(rwl_b[588,]) + # a given buffer
+  tm_shape(rwl_b[993,]) + # a given buffer
   tm_borders(col = "blue", lty = "dashed") +
   tm_layout(legend.outside = TRUE)
 # 4. Extract all NDVI values inside 2km buffer, i.e. NDVI conditions outside the wetland boundary, up to the furthest reach of neighborhoods that could be impacted by a change in wetland conditions
@@ -173,26 +173,22 @@ rwl_b$countNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
   a<-length(na.omit(x$value)) # only counts non-NA cells
   return(a)
 })
-
-
-### Start here - come up with weighted mean NDVI from inside/outside wetland boundary
-rwl_b$meanNDVI_1<-(rwl_b$countNDVI_0-rwl_b$countNDVI_1)
-
+# Some NaN for NDVI extract from outside the wetland, for neighborhoods that lie entirely within the wetland, replace with zero
+rwl_b$meanNDVI_1[is.nan(rwl_b$meanNDVI_1)]<-0
+# 7. Weighted mean NDVI from inside/outside wetland boundary for new scenario
 set.seed(5)
-mean(sample(NDVI_1km,num_cells,replace = FALSE),na.rm = TRUE)
-
-
-
-
-# 3. 
-# 4. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
+rwl_b$meanNDVI_1<-(mean(sample(NDVI_2km,rwl_b$countNDVI_0-rwl_b$countNDVI_1,replace = FALSE),na.rm = TRUE))*((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0) + # Portion of mean from inside
+  (1-((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0))*rwl_b$meanNDVI_1 # Portion of mean from outside wetland    
+# 8. Subset to only variables of interest
+rwl_b<-rwl_b %>% dplyr::select(chn_ppp_2020_guangzhou, meanNDVI_0, meanNDVI_1, countNDVI_0, countNDVI_1)
+# 9. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
 rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
 rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
-# 5. Aggregate and calculate net difference
+# 10. Aggregate and calculate net difference
 rwl_b$PPcValue<-rwl_b$PCTcWHO_5*356.74 # Per capita change in value from Xu et al. (2016)
 rwl_b$cValue<-rwl_b$PPcValue*rwl_b$chn_ppp_2020_guangzhou # Total change in value per cell
 sumcValue<-sum(rwl_b$cValue) # Total change in value
-# 6. Net present value
+# 11. Net present value
 # https://stackoverflow.com/questions/47403180/calculate-npv-for-cashflows-at-all-point-in-time
 dcf <- function(x, r, t0=FALSE){
   # calculates discounted cash flows (DCF) given cash flow and discount rate
@@ -217,3 +213,13 @@ npv <- function(x, r, t0=FALSE){
 }
 x<-rep(sumcValue,30) # vector of annual value, for a given number of years
 NPVcValue<-npv(x,0.05) # NPV, for a given discount rate and number of years
+# 12. Other results
+# Population affected
+sumpop<-round(sum(rwl_b$chn_ppp_2020_guangzhou))
+# Histogram of neighborhood value change
+ggplot(rwl_b, aes(x=cValue)) + geom_histogram(color="black", fill="white") +
+  theme_minimal() +
+  labs(title="Change in value by neighborhood",x="Value (2015 USD)", y = "Count")
+# Mean NDVI by scenario
+mean(rwl_b$meanNDVI_0)
+mean(rwl_b$meanNDVI_1)
