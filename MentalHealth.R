@@ -31,7 +31,7 @@ dl<-function(files){
 setwd("./Data")
 system.time(map(files$id,dl))
 setwd("..")
-rm(files, folder, folder_url)
+rm(files, folder, folder_url, dl)
 
 # Load data to R
 NDVI<-raster("./Data/NDVI_mean_Guangzhou.tif")
@@ -42,6 +42,8 @@ hw<-st_read("./Data/haizhu_wetland.gpkg")
 aoi<-st_read("./Data/aoi.gpkg")
 lulc<-raster("./Data/lulc.tif")
 codes<-read.csv("./Data/lulc_codes.csv")
+NDVIs<-raster("./Data/ndvi_residential.tif")
+NDVIs<-NDVIs/10000 # Rescaling
 
 # Visualize data (auxiliary layers from Natural Earth for mapping, SF format)
 cs<-ne_download(scale = 10, type = "countries", returnclass = "sf")
@@ -55,9 +57,11 @@ prj<-CRS("+init=epsg:32649") # WGS84/UTM49N
 Pop<-projectRaster(Pop, crs=prj) 
 Pop2<-projectRaster(Pop2, crs=prj) 
 NDVI<-projectRaster(NDVI, crs=prj)
+NDVIs<-projectRaster(NDVIs, crs=prj)
 
 # Removing negative NDVI values (as in Liu et al., 2019)
 NDVI[NDVI < 0] <- NA
+NDVIs[NDVIs < 0] <- NA
 
 # Buffering the polygon by 1 and 2km - changes in the wetland can affect neighborhoods up to 1km outside of the wetland, and neighborhoods themselves are affected by NDVI within a 1km buffer
 hw_1km<-st_buffer(hw, dist = 1000) 
@@ -141,10 +145,8 @@ tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
   tm_shape(rwl_b[993,]) + # a given buffer
   tm_borders(col = "blue", lty = "dashed") +
   tm_layout(legend.outside = TRUE)
-# 4. Extract all NDVI values inside 2km buffer, i.e. NDVI conditions outside the wetland boundary, up to the furthest reach of neighborhoods that could be impacted by a change in wetland conditions
-NDVI_2km<-exact_extract(NDVI,hw_buff)
-NDVI_2km<-NDVI_2km[[1]]$value
-# 5. Extract values of NDVI for old NDVI raster
+
+# 4. Extract values of NDVI for old NDVI raster
 rwl_b$NDVI_0<-exact_extract(NDVI,rwl_b)
 # Calculate mean 
 # https://stackoverflow.com/questions/45317327/apply-function-to-columns-in-a-list-of-data-frames-and-append-results
@@ -158,12 +160,11 @@ rwl_b$countNDVI_0<-map_dbl(rwl_b$NDVI_0, function(x){
   a<-length(na.omit(x$value)) # only counts non-NA cells
   return(a)
 })
-# 6. Extract values of NDVI for new scenario
-# Create mask of NDVI to only 2km buffer
-NDVI_2km_crop<-mask(NDVI,hw_buff)
-# Extracting NDVI from the portion of neighborhood outside the wetland
-rwl_b$NDVI_1<-exact_extract(NDVI_2km_crop,rwl_b)
-# Calculate mean for NDVI outside the wetland
+# 5. Extract values of NDVI for new scenario, using provided "wallpaper" map
+rwl_b$NDVI_1<-exact_extract(NDVIs,rwl_b)
+# Calculate mean 
+# https://stackoverflow.com/questions/45317327/apply-function-to-columns-in-a-list-of-data-frames-and-append-results
+# https://stackoverflow.com/questions/57834130/pmap-purrr-error-argument-1-must-have-names
 rwl_b$meanNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
   a<-mean(x$value,na.rm = TRUE)
   return(a)
@@ -173,12 +174,30 @@ rwl_b$countNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
   a<-length(na.omit(x$value)) # only counts non-NA cells
   return(a)
 })
-# Some NaN for NDVI extract from outside the wetland, for neighborhoods that lie entirely within the wetland, replace with zero
-rwl_b$meanNDVI_1[is.nan(rwl_b$meanNDVI_1)]<-0
-# 7. Weighted mean NDVI from inside/outside wetland boundary for new scenario
-set.seed(5)
-rwl_b$meanNDVI_1<-(mean(sample(NDVI_2km,rwl_b$countNDVI_0-rwl_b$countNDVI_1,replace = FALSE),na.rm = TRUE))*((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0) + # Portion of mean from inside
-  (1-((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0))*rwl_b$meanNDVI_1 # Portion of mean from outside wetland    
+# # 5. Extract all NDVI values inside 2km buffer, i.e. NDVI conditions outside the wetland boundary, up to the furthest reach of neighborhoods that could be impacted by a change in wetland conditions
+# NDVI_2km<-exact_extract(NDVI,hw_buff)
+# NDVI_2km<-NDVI_2km[[1]]$value
+# # 6. Extract values of NDVI for new scenario, using values from buffer around wetland
+# # Create mask of NDVI to only 2km buffer
+# NDVI_2km_crop<-mask(NDVI,hw_buff)
+# # Extracting NDVI from the portion of neighborhood outside the wetland
+# rwl_b$NDVI_1<-exact_extract(NDVI_2km_crop,rwl_b)
+# # Calculate mean for NDVI outside the wetland
+# rwl_b$meanNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
+#   a<-mean(x$value,na.rm = TRUE)
+#   return(a)
+# })
+# # Calculate count of pixels sampled
+# rwl_b$countNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
+#   a<-length(na.omit(x$value)) # only counts non-NA cells
+#   return(a)
+# })
+# # Some NaN for NDVI extract from outside the wetland, for neighborhoods that lie entirely within the wetland, replace with zero
+# rwl_b$meanNDVI_1[is.nan(rwl_b$meanNDVI_1)]<-0
+# # 7. Weighted mean NDVI from inside/outside wetland boundary for new scenario
+# set.seed(5)
+# rwl_b$meanNDVI_1<-(mean(sample(NDVI_2km,rwl_b$countNDVI_0-rwl_b$countNDVI_1,replace = FALSE),na.rm = TRUE))*((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0) + # Portion of mean from inside
+#   (1-((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0))*rwl_b$meanNDVI_1 # Portion of mean from outside wetland    
 # 8. Subset to only variables of interest
 rwl_b<-rwl_b %>% dplyr::select(chn_ppp_2020_guangzhou, meanNDVI_0, meanNDVI_1, countNDVI_0, countNDVI_1)
 # 9. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
