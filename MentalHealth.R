@@ -178,7 +178,7 @@ ggplot() +
   geom_sf(data = cvalc, aes(color=cValue)) +
   geom_sf(data = hw, fill=NA, color = "black") + 
   theme_void() + 
-  labs(colour = "Value Change per Year") 
+  labs(colour = "Value Change per \nYear (2020 USD)\n") 
 
 p1<-tm_shape(hw_2km) +
   tm_borders(col = NA) +
