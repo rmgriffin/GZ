@@ -45,12 +45,7 @@ codes<-read.csv("./Data/lulc_codes.csv")
 NDVIs<-raster("./Data/ndvi_residential.tif")
 NDVIs<-NDVIs/10000 # Rescaling
 
-# Visualize data (auxiliary layers from Natural Earth for mapping, SF format)
-cs<-ne_download(scale = 10, type = "countries", returnclass = "sf")
-r<-ne_download(scale = 10, type = "rivers_lake_centerlines", category = "physical",  returnclass = "sf")
-l<-ne_download(scale = 10, type = "land", category = "physical",  returnclass = "sf")
-
-## Mapping
+## Preparing data
 prj<-CRS("+init=epsg:32649") # WGS84/UTM49N
 
 # Reprojecting
@@ -70,53 +65,6 @@ hw_2km<-st_buffer(hw, dist = 2000)
 # Creating a layer that is only the 2km wetland buffer
 hw_buff<-st_difference(hw_2km,hw)
 
-# Maps
-p1<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
-  tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(Pop2) +
-  tm_raster(title = "Population") +
-  tm_shape(cs) +
-  tm_borders(col = "black") +
-  tm_shape(r) +
-  tm_lines(col = "blue") +
-  tm_shape(hw) +
-  tm_borders(col = "black") +
-  tm_shape(hw_2km) +
-  tm_borders(col = "black", lty = "dashed") +
-  tm_layout(legend.outside = TRUE)
-
-p2<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
-  tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(NDVI) +
-  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") +
-  tm_shape(cs) +
-  tm_borders(col = "black") +
-  tm_shape(r) +
-  tm_lines(col = "blue") +
-  tm_shape(hw) +
-  tm_borders(col = "black") +
-  tm_shape(hw_2km) +
-  tm_borders(col = "black", lty = "dashed") +
-  tm_layout(legend.outside = TRUE)
-
-p3<-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
-  tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(lulc) +
-  tm_raster(style = "fixed", breaks=codes$lucode, labels=codes$lulc_desc, palette = "Set1", title = "Land Cover") +
-  tm_shape(cs) +
-  tm_borders(col = "black") +
-  tm_shape(r) +
-  tm_lines(col = "blue") +
-  tm_shape(hw) +
-  tm_borders(col = "black") +
-  tm_shape(hw_2km) +
-  tm_borders(col = "black", lty = "dashed") +
-  tm_layout(legend.outside = TRUE)
-
-#tmap_arrange(p1,p2,p3, nrow = 3)  
-
-#tm_raster(style = "fixed", breaks=seq(0, 5, by=1), labels = c("<1","1 - 2","2 - 3","3 - 4",">4"), palette = cols, title = "Water Depth (m)",colorNA = "white",textNA = "")
-
 ## Analysis
 # 1. Raster to point for each pop cell inside or within 1 km of wetland
 rwl_1km<-mask(Pop2,hw_1km) # mask pop raster to serviceshed - note that "crop" function is different
@@ -124,28 +72,6 @@ rwl_p<-rasterToPoints(rwl_1km,spatial = TRUE) # raster to points
 rwl_p<-st_as_sf(rwl_p) # SP object to SF (faster/modern spatial format)
 # 2. Buffer each point by 1km
 rwl_b<-st_buffer(rwl_p,dist=1000)
-# 3. View outputs
-tm_shape(l, bbox = st_bbox(hw_2km), ext = 1.25) +
-  tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(NDVI) +
-  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") +
-  tm_shape(cs) +
-  tm_borders(col = "black") +
-  tm_shape(r) +
-  tm_lines(col = "blue") +
-  tm_shape(hw) +
-  tm_polygons(border.col = "black", col = "gray") +
-  tm_shape(rwl_p) + # points
-  tm_dots(col = "#3182bd") +
-  # tm_bubbles(size = "chn_ppp_2020_guangzhou") +
-  # tm_shape(rwl_b) + # buffers
-  # tm_borders(col = "red", lty = "dashed") +
-  tm_shape(hw_2km) +
-  tm_borders(col = "black") +
-  tm_shape(rwl_b[993,]) + # a given buffer
-  tm_borders(col = "blue", lty = "dashed") +
-  tm_layout(legend.outside = TRUE)
-
 # 4. Extract values of NDVI for old NDVI raster
 rwl_b$NDVI_0<-exact_extract(NDVI,rwl_b)
 # Calculate mean 
@@ -242,3 +168,39 @@ ggplot(rwl_b, aes(x=cValue)) + geom_histogram(color="black", fill="white") +
 # Mean NDVI by scenario
 mean(rwl_b$meanNDVI_0)
 mean(rwl_b$meanNDVI_1)
+
+## Maps
+cval<-rwl_b %>% dplyr::select(cValue,geometry) 
+cvalc<-st_centroid(cval)
+
+ggplot() +
+  geom_sf(data = hw_2km, fill=NA, color = "black", lty = "dashed") + 
+  geom_sf(data = cvalc, aes(color=cValue)) +
+  geom_sf(data = hw, fill=NA, color = "black") + 
+  theme_void() + 
+  labs(colour = "Value Change per Year") 
+
+p1<-tm_shape(hw_2km) +
+  tm_borders(col = NA) +
+  tm_shape(NDVI) +
+  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") + 
+  tm_shape(hw_2km) +
+  tm_borders(col = "black", lty = "dashed") +
+  tm_shape(hw) +
+  tm_borders(col = "black") +  
+  tm_layout(legend.outside = TRUE)
+
+p2<-tm_shape(hw_2km) +
+  tm_borders(col = NA) +
+  tm_shape(NDVIs) +
+  tm_raster(palette = "Greens", colorNA = NULL, title = "NDVI") + 
+  tm_shape(hw_2km) +
+  tm_borders(col = "black", lty = "dashed") +
+  tm_shape(hw) +
+  tm_borders(col = "black") +  
+  tm_layout(legend.outside = TRUE)
+
+tmap_arrange(p1,p2, nrow = 2)  
+
+#tm_raster(style = "fixed", breaks=seq(0, 5, by=1), labels = c("<1","1 - 2","2 - 3","3 - 4",">4"), palette = cols, title = "Water Depth (m)",colorNA = "white",textNA = "")
+
