@@ -1,7 +1,7 @@
 # Setup -------------------------------------------------------------------
 rm(list=ls()) # Clears workspace
 
-#system("sudo apt install libgeos-dev libproj-dev libgdal-dev libudunits2-dev -y") # Install linux geospatial dependencies 
+#system("sudo apt install make g++ gfortran libgeos-dev libproj-dev libgdal-dev libudunits2-dev libcurl4-openssl-dev -y") # Install linux geospatial dependencies 
 
 # Install/call libraries
 install.packages("renv")
@@ -18,20 +18,20 @@ for (p in PKG) {
 renv::snapshot()
 rm(p,PKG)
 
-# ## Load data
-# # Download from google drive to directory "Data"
-# setwd("~/Github/GZ")
-# dir.create(file.path('Data'), recursive = TRUE)
-# folder_url<-"https://drive.google.com/open?id=1yMjM2V09xyrQ2Oekv93IX8YsrNQjBDWg"
-# folder<-drive_get(as_id(folder_url))
-# files<-drive_ls(folder)
-# dl<-function(files){
-#   walk(files, ~ drive_download(as_id(.x), overwrite = TRUE))
-# }
-# setwd("./Data")
-# system.time(map(files$id,dl))
-# setwd("..")
-# rm(files, folder, folder_url, dl)
+## Load data
+# Download from google drive to directory "Data"
+setwd("~/Github/GZ")
+dir.create(file.path('Data'), recursive = TRUE)
+folder_url<-"https://drive.google.com/open?id=1yMjM2V09xyrQ2Oekv93IX8YsrNQjBDWg"
+folder<-drive_get(as_id(folder_url))
+files<-drive_ls(folder)
+dl<-function(files){
+  walk(files, ~ drive_download(as_id(.x), overwrite = TRUE))
+}
+setwd("./Data")
+system.time(map(files$id,dl))
+setwd("..")
+rm(files, folder, folder_url, dl)
 
 # Load data to R
 NDVI<-raster("./Data/NDVI_mean_Guangzhou.tif")
