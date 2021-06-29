@@ -171,6 +171,17 @@ ggplot(rwl_b, aes(x=cValue)) + geom_histogram(color="black", fill="white") +
 mean(rwl_b$meanNDVI_0)
 mean(rwl_b$meanNDVI_1)
 
+# Total expenditures before and after
+rwl_b$totexp_0<-rwl_b$pop*356.74
+rwl_b$totexp_1<-rwl_b$totexp_0+rwl_b$cValue
+totexp0<-sum(rwl_b$totexp_0)
+x_totexp0<-rep(totexp0,30)
+NPV_totexp0<-npv(x_totexp0,0.05)
+totexp1<-sum(rwl_b$totexp_1)
+x_totexp1<-rep(totexp1,30)
+NPV_totexp1<-npv(x_totexp1,0.05)
+NPV_totexp0-NPV_totexp1 # Compare to NPVcValue
+
 ## Maps
 cval<-rwl_b %>% dplyr::select(cValue,geometry) 
 cvalc<-st_centroid(cval)
