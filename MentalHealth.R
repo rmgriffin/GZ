@@ -36,9 +36,9 @@ rm(files, folder, folder_url, dl)
 # Load data to R
 NDVI<-raster("./Data/NDVI_mean_Guangzhou.tif")
 NDVI<-NDVI/10000 # Rescaling
-Pop<-raster("./Data/population.tif") # Doesn't appear to have coverage across the whole serviceshed
+#Pop<-raster("./Data/population.tif") # Doesn't have coverage across the whole serviceshed
 Pop2<-raster("./Data/chn_ppp_2020_guangzhou.tif")
-Pop3<-raster("./Data/pop.tif")
+#Pop3<-raster("./Data/pop.tif")
 hw<-st_read("./Data/haizhu_wetland.gpkg")
 aoi<-st_read("./Data/aoi.gpkg")
 lulc<-raster("./Data/lulc.tif")
@@ -50,9 +50,9 @@ NDVIs<-NDVIs/10000 # Rescaling
 prj<-CRS("+init=epsg:32649") # WGS84/UTM49N
 
 # Reprojecting
-Pop<-projectRaster(Pop, crs=prj) 
+#Pop<-projectRaster(Pop, crs=prj) 
 Pop2<-projectRaster(Pop2, crs=prj) 
-Pop3<-projectRaster(Pop3, crs=prj)
+#Pop3<-projectRaster(Pop3, crs=prj)
 NDVI<-projectRaster(NDVI, crs=prj)
 NDVIs<-projectRaster(NDVIs, crs=prj)
 
@@ -69,7 +69,7 @@ hw_buff<-st_difference(hw_2km,hw)
 
 ## Analysis
 # 1. Raster to point for each pop cell inside or within 1 km of wetland
-rwl_1km<-mask(Pop3,hw_1km) # mask pop raster to serviceshed - note that "crop" function is different
+rwl_1km<-mask(Pop2,hw_1km) # mask pop raster to serviceshed - note that "crop" function is different
 rwl_p<-rasterToPoints(rwl_1km,spatial = TRUE) # raster to points
 rwl_p<-st_as_sf(rwl_p) # SP object to SF (faster/modern spatial format)
 # 2. Buffer each point by 1km
@@ -125,15 +125,18 @@ rwl_b$countNDVI_1<-map_dbl(rwl_b$NDVI_1, function(x){
 # # 7. Weighted mean NDVI from inside/outside wetland boundary for new scenario
 # set.seed(5)
 # rwl_b$meanNDVI_1<-(mean(sample(NDVI_2km,rwl_b$countNDVI_0-rwl_b$countNDVI_1,replace = FALSE),na.rm = TRUE))*((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0) + # Portion of mean from inside
-#   (1-((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0))*rwl_b$meanNDVI_1 # Portion of mean from outside wetland    
+#   (1-((rwl_b$countNDVI_0-rwl_b$countNDVI_1)/rwl_b$countNDVI_0))*rwl_b$meanNDVI_1 # Portion of mean from outside wetland 
+
 # 8. Subset to only variables of interest
-rwl_b<-rwl_b %>% dplyr::select(pop, meanNDVI_0, meanNDVI_1, countNDVI_0, countNDVI_1)
+#rwl_b<-rwl_b %>% dplyr::select(pop, meanNDVI_0, meanNDVI_1, countNDVI_0, countNDVI_1)
+rwl_b<-rwl_b %>% dplyr::select(chn_ppp_2020_guangzhou, meanNDVI_0, meanNDVI_1, countNDVI_0, countNDVI_1)
 # 9. Calculate % change in mental health (WHO-5 score) using function from Liu et al. (2019)
 rwl_b$PTcWHO_5<-(rwl_b$meanNDVI_1-rwl_b$meanNDVI_0)/0.1356 # Point change
 rwl_b$PCTcWHO_5<-rwl_b$PTcWHO_5/12.081 # Percent change
 # 10. Aggregate and calculate net difference
 rwl_b$PPcValue<-rwl_b$PCTcWHO_5*356.74 # Per capita change in value from Xu et al. (2016)
-rwl_b$cValue<-rwl_b$PPcValue*rwl_b$pop # Total change in value per cell
+#rwl_b$cValue<-rwl_b$PPcValue*rwl_b$pop # Total change in value per cell
+rwl_b$cValue<-rwl_b$PPcValue*rwl_b$chn_ppp_2020_guangzhou # Total change in value per cell
 sumcValue<-sum(rwl_b$cValue) # Total change in value
 # 11. Net present value
 # https://stackoverflow.com/questions/47403180/calculate-npv-for-cashflows-at-all-point-in-time
@@ -162,7 +165,8 @@ x<-rep(sumcValue,30) # vector of annual value, for a given number of years
 NPVcValue<-npv(x,0.05) # NPV, for a given discount rate and number of years
 # 12. Other results
 # Population affected
-sumpop<-round(sum(rwl_b$pop))
+#sumpop<-round(sum(rwl_b$pop))
+sumpop<-round(sum(rwl_b$chn_ppp_2020_guangzhou))
 # Histogram of neighborhood value change
 ggplot(rwl_b, aes(x=cValue)) + geom_histogram(color="black", fill="white") +
   theme_minimal() +
@@ -172,7 +176,8 @@ mean(rwl_b$meanNDVI_0)
 mean(rwl_b$meanNDVI_1)
 
 # Total expenditures before and after
-rwl_b$totexp_0<-rwl_b$pop*356.74
+#rwl_b$totexp_0<-rwl_b$pop*356.74
+rwl_b$totexp_0<-rwl_b$chn_ppp_2020_guangzhou*356.74
 rwl_b$totexp_1<-rwl_b$totexp_0+rwl_b$cValue
 totexp0<-sum(rwl_b$totexp_0)
 x_totexp0<-rep(totexp0,30)
@@ -185,14 +190,25 @@ NPV_totexp0-NPV_totexp1 # Compare to NPVcValue
 ## Maps
 cval<-rwl_b %>% dplyr::select(cValue,geometry) 
 cvalc<-st_centroid(cval)
+popc<-st_as_sf(rasterToPoints(rwl_1km, spatial = TRUE))
 
+# Population
 ggplot() +
+  geom_sf(data = hw_2km, fill=NA, color = "black", lty = "dashed") + 
+  geom_sf(data = popc, aes(color=chn_ppp_2020_guangzhou)) +
+  geom_sf(data = hw, fill=NA, color = "black") + 
+  theme_void() + 
+  labs(colour = "2020 Population") 
+
+# Change in value per year
+  ggplot() +
   geom_sf(data = hw_2km, fill=NA, color = "black", lty = "dashed") + 
   geom_sf(data = cvalc, aes(color=cValue)) +
   geom_sf(data = hw, fill=NA, color = "black") + 
   theme_void() + 
   labs(colour = "Value Change per \nYear (2020 USD)\n") 
 
+# NDVI comparison
 p1<-tm_shape(hw_2km) +
   tm_borders(col = NA) +
   tm_shape(NDVI) +
