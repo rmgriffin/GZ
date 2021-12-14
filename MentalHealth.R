@@ -192,6 +192,9 @@ cval<-rwl_b %>% dplyr::select(cValue,geometry)
 cvalc<-st_centroid(cval)
 popc<-st_as_sf(rasterToPoints(rwl_1km, spatial = TRUE))
 
+#st_write(cvalc, "annualval.gpkg")
+#st_write(cvalc, "annualval.shp")
+
 # Population
 ggplot() +
   geom_sf(data = hw_2km, fill=NA, color = "black", lty = "dashed") + 
